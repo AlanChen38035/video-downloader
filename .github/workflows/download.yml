@@ -1,0 +1,70 @@
+name: 萬用影音下載器
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: '影片連結 (支援 YouTube / TikTok / IG / X 等)'
+        required: true
+        type: string
+      media_type:
+        description: '下載格式'
+        required: true
+        default: 'video'
+        type: choice
+        options:
+          - video (MP4 影片)
+          - audio (MP3 音訊)
+
+jobs:
+  download-and-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 安裝環境與套件
+      - name: 安裝 FFmpeg 與最新版 yt-dlp
+        run: |
+          sudo apt update
+          sudo apt install ffmpeg -y
+          python -m pip install --upgrade pip
+          pip install --upgrade yt-dlp
+
+      # 2. 建立輸出資料夾
+      - name: 準備輸出目錄
+        run: mkdir -p output
+
+      # 3. 根據選項執行下載
+      - name: 執行下載處理
+        run: |
+          URL="${{ github.event.inputs.video_url }}"
+          TYPE="${{ github.event.inputs.media_type }}"
+          
+          echo "正在處理網址: $URL"
+          echo "選擇類型: $TYPE"
+
+          if [[ "$TYPE" == *"audio"* ]]; then
+            # 下載音訊並轉換為 192kbps MP3
+            yt-dlp \
+              --extract-audio \
+              --audio-format mp3 \
+              --audio-quality 192K \
+              --restrict-filenames \
+              -o "output/%(title)s.%(ext)s" \
+              "$URL"
+          else
+            # 下載 1080p 以內的最佳畫質 MP4（合併音軌）
+            yt-dlp \
+              -f "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
+              --merge-output-format mp4 \
+              --restrict-filenames \
+              -o "output/%(title)s.%(ext)s" \
+              "$URL"
+          fi
+
+      # 4. 將下載好的檔案上傳到 GitHub 供下載
+      - name: 上傳檔案供下載 (Artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: downloaded-media
+          path: output/
+          retention-days: 1 # 檔案保留 1 天，節省 GitHub 空間
